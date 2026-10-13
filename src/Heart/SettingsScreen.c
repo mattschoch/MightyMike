@@ -83,9 +83,11 @@ static void DeleteTextAtRowCol(int row, int col);
 static const char* GetKeyBindingName(int row, int col);
 static const char* GetPadBindingName(int row, int col);
 static void OnDone(void);
+#ifndef SDL_PLATFORM_IOS
 static void OnChangeFullscreenMode(void);
-static void OnChangePlayfieldSizeViaSettings(void);
 static void OnChangeDebugInfoInTitleBar(void);
+#endif
+static void OnChangePlayfieldSizeViaSettings(void);
 static void OnResetKeys(void);
 static void OnResetGamepad(void);
 static void LayOutMenu(MenuItem* menu);
@@ -146,6 +148,7 @@ static MenuItem gVideoMenu[] =
 			.choices = { "32 fps, like original", "smooth" },
 		}
 	},
+#ifndef SDL_PLATFORM_IOS				// no windows or monitors on iOS
 	{ .type = kMenuItem_Separator },
 	{
 		.type = kMenuItem_Cycler, .cycler =
@@ -215,6 +218,7 @@ static MenuItem gVideoMenu[] =
 			},
 		}
 	},
+#endif
 
 	{ .type = kMenuItem_Separator },
 
@@ -311,6 +315,7 @@ static MenuItem gPresentationMenu[] =
 			.choices = { "instantaneous", "charging batteries" },
 		}
 	},
+#ifndef SDL_PLATFORM_IOS				// no titlebar on iOS
 	{
 		.type = kMenuItem_Cycler, .cycler =
 		{
@@ -321,6 +326,7 @@ static MenuItem gPresentationMenu[] =
 			.choices = { "no", "yes" },
 		}
 	},
+#endif
 	{ .type = kMenuItem_Action, .button = { .caption = "done", .callback = OnDone } },
 	{ .type = kMenuItem_END_SENTINEL },
 };
@@ -370,7 +376,9 @@ static MenuItem gRootMenu[] =
 {
 	{ .type = kMenuItem_Label, .label = " SETTINGS", },
 	{ .type = kMenuItem_Separator },
+#ifndef SDL_PLATFORM_IOS				// keyboard bindings are desktop-only
 	{ .type = kMenuItem_Submenu, .submenu = {.caption = "configure keyboard",	.menu = gKeyboardMenu} },
+#endif
 	{ .type = kMenuItem_Submenu, .submenu = {.caption = "configure gamepad",	.menu = gGamepadMenu} },
 	{ .type = kMenuItem_Submenu, .submenu = {.caption = "video",				.menu = gVideoMenu} },
 	{ .type = kMenuItem_Submenu, .submenu = {.caption = "audio",				.menu = gAudioMenu} },
@@ -483,6 +491,7 @@ static void RemapRedToGray(int row)
 
 static void OnMenuEntered(void)
 {
+#ifndef SDL_PLATFORM_IOS					// zoom/monitor rows don't exist on iOS
 	if (gMenu == gVideoMenu)
 	{
 		{
@@ -505,6 +514,7 @@ static void OnMenuEntered(void)
 			gMenu[row].cycler.numChoices = numDisplays;
 		}
 	}
+#endif
 }
 
 /****************************/
@@ -545,10 +555,12 @@ static void OnDone(void)
 	}
 }
 
+#ifndef SDL_PLATFORM_IOS
 static void OnChangeFullscreenMode(void)
 {
 	SetFullscreenMode(true);
 }
+#endif
 
 static void OnChangePlayfieldSizeViaSettings(void)
 {
@@ -560,10 +572,12 @@ static void OnChangePlayfieldSizeViaSettings(void)
 	LayOutMenu(gMenu);//LayOutSettingsPageBackground();
 }
 
+#ifndef SDL_PLATFORM_IOS
 static void OnChangeDebugInfoInTitleBar(void)
 {
 	SDL_SetWindowTitle(gSDLWindow, GAME_FULL_NAME " " GAME_VERSION);
 }
+#endif
 
 static void OnResetKeys(void)
 {

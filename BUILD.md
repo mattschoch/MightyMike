@@ -33,6 +33,15 @@ If you want to build the game **manually** instead, the rest of this document de
     ```
 1. The game gets built in `build/RelWithDebInfo/MightyMike.app`. Enjoy!
 
+## How to build the game for iOS
+
+1. Install Xcode and [CMake](https://formulae.brew.sh/formula/cmake) 3.24+.
+1. Clone the repo **recursively** (see above), then build for the iOS Simulator:
+    ```
+    python3 build.py --ios --dependencies --configure --build
+    ```
+1. To run on a device, open `build-ios/MightyMike.xcodeproj` in Xcode, pick your development team under Signing & Capabilities, and run.
+
 ## How to build the game manually on Windows
 
 1. Install the prerequisites:

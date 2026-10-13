@@ -23,6 +23,7 @@
 #include "main.h"
 #include "infobar.h"
 #include "input.h"
+#include "touchcontrols.h"
 #include "externs.h"
 #include "weapon.h"
 #include "font.h"
@@ -55,6 +56,12 @@ static void DoDifficultyScreen(void);
 #define	OPTIONS_X			CURSOR_X
 #define	OPTIONS_Y			410
 #define	OPTION_SPACING		100				// must be even!!!
+
+#ifdef SDL_PLATFORM_IOS
+#define	NUM_TITLE_OPTIONS	5				// no QUIT on iOS: apps don't quit themselves
+#else
+#define	NUM_TITLE_OPTIONS	6
+#endif
 
 enum
 {
@@ -110,6 +117,7 @@ short		i,startSelection;
 	songFlag = false;
 
 re_enter:
+	TouchControls_SetBackButtonVisible(false);				// back does nothing on the title
 	gStartingScene = 0;								// assume not cheating
 	gDemoTimeout = TIME_TILL_DEMO;
 
@@ -133,7 +141,7 @@ re_enter:
 
 					/* CREATE ICONS */
 
-	for (i=0; i < 6; i++)
+	for (i=0; i < NUM_TITLE_OPTIONS; i++)
 		icons[i] = MakeNewShape(GroupNum_TitleIcons,ObjType_TitleIcons,i,OPTIONS_X+(i*OPTION_SPACING),OPTIONS_Y,
 						0,nil,SCREEN_RELATIVE);
 
@@ -214,6 +222,7 @@ re_enter:
 				/* HANDLE SELECTION */
 
 	startSelection = gCursorSelection;				// remember where to restart cursor
+	TouchControls_SetBackButtonVisible(true);		// every choice leads to a screen that back exits
 
 	switch(gCursorSelection)
 	{
@@ -241,9 +250,11 @@ re_enter:
 				goto re_enter;
 				break;
 
+#ifndef SDL_PLATFORM_IOS
 		case	5:									// QUIT
 				CleanQuit();
 				break;
+#endif
 
 	}
 	FadeOutGameCLUT();
@@ -312,6 +323,7 @@ void MoveTitleCursor(void)
 		gCursorMode = CURSOR_MODE_WALK;
 		gCursorSelection = 1;
 	}
+#ifndef SDL_PLATFORM_IOS
 	else
 	if (GetSDLKeyState(SDL_SCANCODE_Q))											// see if go directly to QUIT
 	{
@@ -322,6 +334,7 @@ void MoveTitleCursor(void)
 		gCursorMode = CURSOR_MODE_WALK;
 		gCursorSelection = 5;
 	}
+#endif
 
 
 	if (gCursorMode == CURSOR_MODE_READY)
@@ -343,7 +356,7 @@ void MoveTitleCursor(void)
 		if (GetNeedState(kNeed_UIRight) || GetNewNeedState(kNeed_UINext))		// see if right key
 		{
 			gDemoTimeout = TIME_TILL_DEMO;
-			if (gCursorSelection < 5)
+			if (gCursorSelection < NUM_TITLE_OPTIONS-1)
 			{
 				if (icons[gCursorSelection]->SubType >= 6)
 					SwitchAnim(icons[gCursorSelection],icons[gCursorSelection]->SubType-6);		// stop flash this icon
@@ -947,6 +960,7 @@ long		restoreMode;
 		gLoadOldGameNum = restoreMode;
 	}
 
+	TouchControls_SetBackButtonVisible(false);			// game is starting
 
 	ZapShapeTable(GROUP_OVERHEAD);
 }

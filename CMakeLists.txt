@@ -12,12 +12,27 @@ set(GAME_SRCDIR				"${CMAKE_SOURCE_DIR}/src")
 set(CMAKE_CXX_STANDARD		20)
 set(CMAKE_C_STANDARD		17)
 
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version")  # Sync with LSMinimumSystemVersion in SDL3.framework's Info.plist
-set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target macOS architectures")
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS deployment version")
+else()
+	set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version")  # Sync with LSMinimumSystemVersion in SDL3.framework's Info.plist
+	set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target macOS architectures")
+endif()
 
 project(${GAME_TARGET}
 	VERSION ${GAME_VERSION}
 	LANGUAGES C CXX)
+
+if(IOS)
+	# Build SDL from source (extern/SDL, fetched by 'build.py --ios --dependencies') and link it statically
+	set(BUILD_SDL_FROM_SOURCE ON)
+	set(SDL_STATIC ON)
+	set(SDL_SHARED OFF)
+	set(SDL_TEST_LIBRARY OFF)
+
+	set(IOS_BUNDLE_ID "${GAME_IDENTIFIER}" CACHE STRING "iOS bundle identifier")
+	set(IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple development team ID for iOS code signing")
+endif()
 
 option(BUILD_SDL_FROM_SOURCE "Build SDL from source" OFF)
 option(SDL_STATIC "Static link SDL" OFF)
@@ -43,7 +58,7 @@ if(MSVC)
 	add_compile_definitions(UNICODE _UNICODE)
 
 	set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${GAME_TARGET})
-elseif(APPLE)
+elseif(APPLE AND NOT IOS)
 	# Let the game (and Pomme) find header files within extern/SDL3.framework
 	set(CMAKE_XCODE_ATTRIBUTE_FRAMEWORK_SEARCH_PATHS extern)
 	add_compile_options("-F${CMAKE_SOURCE_DIR}/extern")  # for non-xcode IDEs
@@ -62,7 +77,7 @@ add_compile_definitions(POMME_CASE_SENSITIVE_FSSPEC=1)
 
 # If SDL3_DIR wasn't specified, discover if the user put some prebuilt SDL3
 # package in the 'extern' directory
-if(NOT DEFINED SDL3_DIR)
+if(NOT DEFINED SDL3_DIR AND NOT IOS)
 	if(APPLE)
 		set(_sdl3_maybe "${CMAKE_SOURCE_DIR}/extern/SDL3.framework/Resources/CMake")
 	elseif(WIN32)
@@ -82,11 +97,17 @@ if(NOT BUILD_SDL_FROM_SOURCE)
 	find_package(SDL3 CONFIG REQUIRED)
 	message("Found pre-built SDL3")
 else()
-	if(NOT DEFINED SDL3_DIR)
+	if(NOT DEFINED SDL3_DIR OR SDL3_DIR STREQUAL "${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}")  # (ignore redirect left in cache by previous run)
 		set(SDL3_DIR "${CMAKE_SOURCE_DIR}/extern/SDL")
 	endif()
 	message("Building SDL3 from source: " ${SDL3_DIR})
 	add_subdirectory("${SDL3_DIR}" EXCLUDE_FROM_ALL)
+
+	# Let find_package(SDL3) in Pomme resolve to the SDL3::SDL3 target we just added
+	if(CMAKE_VERSION VERSION_LESS 3.24)
+		message(FATAL_ERROR "Building SDL from source requires CMake 3.24+")
+	endif()
+	file(WRITE "${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/sdl3-config.cmake" "")
 endif()
 
 #------------------------------------------------------------------------------
@@ -95,7 +116,9 @@ endif()
 
 add_subdirectory(extern/Pomme)
 
-find_package(OpenGL REQUIRED)  # only actually required if we want to force GLRENDER
+if(NOT IOS)
+	find_package(OpenGL REQUIRED)  # only actually required if we want to force GLRENDER
+endif()
 
 #------------------------------------------------------------------------------
 # EXECUTABLE TARGET
@@ -114,6 +137,13 @@ if(WIN32)
 	# Windows resource file
 	configure_file(${CMAKE_SOURCE_DIR}/packaging/win32.rc.in ${CMAKE_SOURCE_DIR}/packaging/${GAME_TARGET}.exe.rc)
 	list(APPEND GAME_SOURCES ${CMAKE_SOURCE_DIR}/packaging/${GAME_TARGET}.exe.rc)
+elseif(IOS)
+	# Bundle resources (copied before code signing). Data/ lands in <App>.app/Data.
+	set(GAME_IOS_RESOURCES
+		${CMAKE_SOURCE_DIR}/packaging/ios/LaunchScreen.storyboard
+		${CMAKE_SOURCE_DIR}/packaging/ios/Assets.xcassets
+		${GAME_DATADIR})
+	list(APPEND GAME_SOURCES ${GAME_IOS_RESOURCES})
 elseif(APPLE)
 	list(APPEND GAME_SOURCES ${CMAKE_SOURCE_DIR}/packaging/${GAME_TARGET}.icns)
 	set_source_files_properties(${CMAKE_SOURCE_DIR}/packaging/${GAME_TARGET}.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
@@ -129,7 +159,7 @@ target_include_directories(${GAME_TARGET} PRIVATE ${GAME_SRCDIR}/Headers)
 
 add_compile_definitions(
 	"$<$<CONFIG:DEBUG>:_DEBUG>"
-	GLRENDER    # Mighty Mike only (comment out to use SDL's 2D renderer)
+	"$<$<NOT:$<PLATFORM_ID:iOS>>:GLRENDER>"    # Mighty Mike only (comment out to use SDL's 2D renderer, which iOS always uses)
 	#NOVSYNC    # Mighty Mike only
 )
 
@@ -210,11 +240,50 @@ else()
 endif()
 
 # Link core dependencies
-target_link_libraries(${GAME_TARGET} PRIVATE Pomme OpenGL::GL)
+target_link_libraries(${GAME_TARGET} PRIVATE Pomme)
+
+if(NOT IOS)
+	target_link_libraries(${GAME_TARGET} PRIVATE OpenGL::GL)
+endif()
 
 # Add required frameworks for KillMacMouseAcceleration
-if(APPLE)
+if(APPLE AND NOT IOS)
 	target_link_libraries(${GAME_TARGET} PRIVATE "-framework Foundation" "-framework IOKit")
+endif()
+
+#------------------------------------------------------------------------------
+# IOS
+#------------------------------------------------------------------------------
+
+if(IOS)
+	set_source_files_properties(${GAME_IOS_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+
+	set_target_properties(${GAME_TARGET} PROPERTIES
+		MACOSX_BUNDLE						TRUE
+		MACOSX_BUNDLE_INFO_PLIST			"${CMAKE_SOURCE_DIR}/packaging/ios/Info.plist.in"
+		RESOURCE							"${GAME_IOS_RESOURCES}"
+
+		# Info.plist values (see packaging/ios/Info.plist.in)
+		MACOSX_BUNDLE_EXECUTABLE_NAME		${GAME_TARGET}
+		MACOSX_BUNDLE_SHORT_VERSION_STRING	${GAME_VERSION}
+		MACOSX_BUNDLE_BUNDLE_VERSION		${GAME_VERSION}
+		MACOSX_BUNDLE_COPYRIGHT				${GAME_COPYRIGHT}
+		MACOSX_BUNDLE_BUNDLE_NAME			${GAME_FULL_NAME}
+		MACOSX_BUNDLE_GUI_IDENTIFIER		${IOS_BUNDLE_ID}
+
+		XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER	${IOS_BUNDLE_ID}
+		XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY		"1,2"		# iPhone, iPad
+		XCODE_ATTRIBUTE_CODE_SIGN_STYLE				"Automatic"
+		XCODE_ATTRIBUTE_DEVELOPMENT_TEAM			"${IOS_DEVELOPMENT_TEAM}"
+		XCODE_ATTRIBUTE_COPY_PHASE_STRIP[variant=Debug]	"NO"
+		XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME	"AppIcon"
+	)
+
+	# libSDL3.a appears twice on the link line (via Pomme and SDL3::SDL3-static)
+	target_link_options(${GAME_TARGET} PRIVATE "LINKER:-no_warn_duplicate_libraries")
+
+	# The desktop properties and post-build steps below don't apply to iOS
+	return()
 endif()
 
 #------------------------------------------------------------------------------

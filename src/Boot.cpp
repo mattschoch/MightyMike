@@ -28,7 +28,7 @@ static fs::path FindGameData(const char* executablePath)
 
 	int attemptNum = 0;
 
-#if !(__APPLE__)
+#ifndef SDL_PLATFORM_MACOS
 	attemptNum++;		// skip macOS special case #0
 #endif
 
@@ -44,8 +44,14 @@ tryAgain:
 			break;
 
 		case 1:
+#ifdef SDL_PLATFORM_IOS
+			// iOS app bundles are flat: Data sits next to the executable
+			dataPath = SDL_GetBasePath();
+			dataPath /= "Data";
+#else
 			dataPath = executablePath;
 			dataPath = dataPath.parent_path() / "Data";
+#endif
 			break;
 
 		case 2:
@@ -102,7 +108,12 @@ static void Boot(int argc, char** argv)
 #endif // GLRENDER
 
 	// Create window
+#ifdef SDL_PLATFORM_IOS
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+	int windowFlags = SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#else
 	int windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
 #if GLRENDER
 	windowFlags |= SDL_WINDOW_OPENGL;
 #endif

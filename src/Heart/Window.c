@@ -528,6 +528,10 @@ SDL_DisplayID GetPreferredSDLDisplayID(void)
 
 void MoveToPreferredDisplay(void)
 {
+#ifdef SDL_PLATFORM_IOS
+	return;		// iOS: single fullscreen window, nothing to move
+#endif
+
 	SDL_DisplayID currentDisplay = SDL_GetDisplayForWindow(gSDLWindow);
 	SDL_DisplayID preferredDisplay = GetPreferredSDLDisplayID();
 
@@ -542,6 +546,13 @@ void MoveToPreferredDisplay(void)
 
 void SetFullscreenMode(bool enforceDisplayPref)
 {
+#ifdef SDL_PLATFORM_IOS
+	// iOS: the window is always fullscreen; just refresh the scaling
+	(void) enforceDisplayPref;
+	OnChangeIntegerScaling();
+	return;
+#endif
+
 	if (gGamePrefs.displayMode == kDisplayMode_Windowed)
 	{
 		SDL_SetWindowFullscreen(gSDLWindow, false);
@@ -611,6 +622,10 @@ int GetMaxIntegerZoomForPreferredDisplay(void)
 
 void SetOptimalWindowSize(void)
 {
+#ifdef SDL_PLATFORM_IOS
+	return;		// iOS: the system sizes the fullscreen window
+#endif
+
 	SDL_DisplayID display = GetPreferredSDLDisplayID();
 	SDL_WindowFlags windowFlags = SDL_GetWindowFlags(gSDLWindow);
 	SDL_RestoreWindow(gSDLWindow);

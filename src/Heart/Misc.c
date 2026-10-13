@@ -361,7 +361,7 @@ int32_t		decompType;
 
 					/*  DUMP UNPACKED DATA TO FILE (FOR DEBUGGING ONLY) */
 
-#if !_WIN32 && _DEBUG
+#if !_WIN32 && _DEBUG && !defined(SDL_PLATFORM_IOS)
 	char debugPathBuffer[256];
 	SDL_snprintf(debugPathBuffer, sizeof(debugPathBuffer), "/tmp/MikeUnpack_%s",fileName);
 

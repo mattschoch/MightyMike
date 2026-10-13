@@ -16,9 +16,15 @@
 
 #include "misc.h"
 #include "input.h"
+#include "touchcontrols.h"
 #include "window.h"
 #include "structures.h"
 #include "externs.h"
+
+#ifdef SDL_PLATFORM_IOS
+#include "main.h"
+#include "sound2.h"
+#endif
 
 /**********************/
 /*     PROTOTYPES     */
@@ -34,6 +40,15 @@ Byte				gNeedStates[NUM_CONTROL_NEEDS];
 
 static void ParseAltEnter(void);
 static void OnJoystickRemoved(SDL_JoystickID which);
+
+#ifdef SDL_PLATFORM_IOS
+static bool SDLCALL OnAppLifecycleEvent(void* userdata, SDL_Event* event);
+static void OnAppEnterForeground(void);
+
+static bool			gPausedForBackground = false;
+static bool			gPendingPauseOnResume = false;
+static bool			gKeyDownSinceLastUpdate[SDL_SCANCODE_COUNT];	// see SDL_EVENT_KEY_DOWN below
+#endif
 
 /****************************/
 /*    CONSTANTS             */
@@ -90,6 +105,12 @@ static inline void UpdateKeyState(Byte* state, bool downNow)
 
 void InitInput(void)
 {
+	TouchControls_Init();
+
+#ifdef SDL_PLATFORM_IOS
+	// iOS may suspend the app before the main loop sees the event
+	SDL_AddEventWatch(OnAppLifecycleEvent, NULL);
+#endif
 }
 
 
@@ -139,8 +160,36 @@ void UpdateInput(void)
 			mouseWheelDelta += event.wheel.y;
 			mouseWheelDelta += event.wheel.x;
 			break;
+
+#ifdef SDL_PLATFORM_IOS
+		case SDL_EVENT_FINGER_DOWN:
+		case SDL_EVENT_FINGER_UP:
+		case SDL_EVENT_FINGER_MOTION:
+		case SDL_EVENT_FINGER_CANCELED:
+			TouchControls_HandleEvent(&event);
+			break;
+
+		case SDL_EVENT_DID_ENTER_FOREGROUND:
+			OnAppEnterForeground();
+			break;
+
+		// The on-screen keyboard releases keys before we read the keyboard state,
+		// so latch presses for one frame
+		case SDL_EVENT_KEY_DOWN:
+			if (event.key.scancode < SDL_SCANCODE_COUNT)
+				gKeyDownSinceLastUpdate[event.key.scancode] = true;
+			break;
+#endif
 		}
 	}
+
+	TouchControls_Update();
+
+#ifdef SDL_PLATFORM_IOS
+	// Touch UIBack also acts as Escape, for screens that read the raw key (e.g. gamepad rebind prompt)
+	if (TouchControls_GetNeed(kNeed_UIBack))
+		gKeyDownSinceLastUpdate[SDL_SCANCODE_ESCAPE] = true;
+#endif
 
 	// --------------------------------------------
 	// Update raw keyboard state
@@ -154,8 +203,16 @@ void UpdateInput(void)
 
 		for (int i = 0; i < minNumKeys; i++)
 		{
+#ifdef SDL_PLATFORM_IOS
+			UpdateKeyState(&gRawKeyboardState[i], keystate[i] || gKeyDownSinceLastUpdate[i]);
+#else
 			UpdateKeyState(&gRawKeyboardState[i], keystate[i]);
+#endif
 		}
+
+#ifdef SDL_PLATFORM_IOS
+		SDL_zeroa(gKeyDownSinceLastUpdate);
+#endif
 
 		// fill out the rest
 		for (int i = minNumKeys; i < SDL_SCANCODE_COUNT; i++)
@@ -232,6 +289,16 @@ void UpdateInput(void)
 				}
 			}
 		}
+
+		downNow |= TouchControls_GetNeed(i);
+
+#ifdef SDL_PLATFORM_IOS
+		if (i == kNeed_UIPause && gPendingPauseOnResume)		// open pause prompt after returning from background
+		{
+			downNow = true;
+			gPendingPauseOnResume = false;
+		}
+#endif
 
 		UpdateKeyState(&gNeedStates[i], downNow);
 	}
@@ -415,9 +482,10 @@ static void OnJoystickRemoved(SDL_JoystickID which)
 
 int32_t GetLeftStickMagnitude_Fix32(void)
 {
-	if (!gSDLGamepad)
+	int32_t touchMagnitude = TouchControls_GetStickMagnitude_Fix32();
+	if (touchMagnitude != 0 || !gSDLGamepad)
 	{
-		return 0;
+		return touchMagnitude;
 	}
 
 	int dxRaw = (int) SDL_GetGamepadAxis(gSDLGamepad, SDL_GAMEPAD_AXIS_LEFTX);
@@ -467,3 +535,57 @@ short GetRightStick8WayAim(void)
 		else			return AIM_NONE;
 	}
 }
+
+#pragma mark -
+
+/****************************** APP LIFECYCLE (IOS) ********************************/
+
+#ifdef SDL_PLATFORM_IOS
+
+// Event watch: called synchronously, before the app gets suspended
+static bool SDLCALL OnAppLifecycleEvent(void* userdata, SDL_Event* event)
+{
+	(void) userdata;
+
+	switch (event->type)
+	{
+		case SDL_EVENT_WILL_ENTER_BACKGROUND:
+			if (!gPausedForBackground)
+			{
+				PauseAllChannels(true);
+				gPausedForBackground = true;
+			}
+			SavePrefs();
+			break;
+
+		case SDL_EVENT_TERMINATING:
+			SavePrefs();
+			break;
+
+		default:
+			break;
+	}
+
+	return true;
+}
+
+static void OnAppEnterForeground(void)
+{
+	TouchControls_Reset();							// touches may have been lost while in background
+
+	if (!gPausedForBackground)
+		return;
+
+	gPausedForBackground = false;
+
+	if (gIsInGame && !gIsGamePaused)
+	{
+		gPendingPauseOnResume = true;				// open the pause prompt, which resumes the channels when dismissed
+	}
+	else if (!gIsGamePaused)
+	{
+		PauseAllChannels(false);					// in menus
+	}
+}
+
+#endif

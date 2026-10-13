@@ -107,6 +107,10 @@ parser.add_argument("--dist-dir", metavar="<dir>", default=dist_dir,
 parser.add_argument("--print-artifact-name", default=False, action="store_true",
         help="print artifact name and exit")
 
+if SYSTEM == "Darwin":
+    parser.add_argument("--ios", default=False, action="store_true",
+        help="target iOS: fetch SDL source into extern/SDL, configure and build for the iOS Simulator")
+
 if SYSTEM == "Linux":
     parser.add_argument("--system-sdl", default=False, action="store_true",
         help="use system SDL instead of building SDL from scratch")
@@ -117,7 +121,10 @@ if SYSTEM == "Linux":
 args = parser.parse_args()
 
 dist_dir = os.path.abspath(args.dist_dir)
-build_dir = os.path.abspath(args.build_dir)
+if SYSTEM == "Darwin" and args.ios and args.build_dir == build_dir:
+    build_dir = os.path.abspath(root_dir + "/build-ios")  # don't clobber the macOS build directory
+else:
+    build_dir = os.path.abspath(args.build_dir)
 
 #----------------------------------------------------------------
 
@@ -355,6 +362,24 @@ class MacProject(Project):
             self.get_artifact_path()])
 
 
+class IosProject(Project):
+    def __init__(self, dir_name):
+        super().__init__(dir_name)
+        self.gen_args += ["-DCMAKE_SYSTEM_NAME=iOS"]
+        self.build_configs = ["Debug"]
+        self.build_args += ["-quiet", "-sdk", "iphonesimulator", "-arch", MACHINE]  # Simulator build for this Mac
+
+    def prepare_dependencies(self):
+        # SDL is built from source as a static library on iOS (see BUILD_SDL_FROM_SOURCE in CMakeLists.txt)
+        sdl_source_dir = f"{libs_dir}/SDL"
+        rmtree_if_exists(sdl_source_dir)
+        rmtree_if_exists(f"{libs_dir}/SDL3-{sdl_ver}")
+
+        sdl_tarball_path = get_package(f"https://libsdl.org/release/SDL3-{sdl_ver}.tar.gz")
+        shutil.unpack_archive(sdl_tarball_path, libs_dir)
+        shutil.move(f"{libs_dir}/SDL3-{sdl_ver}", sdl_source_dir)
+
+
 class LinuxProject(Project):
     def __init__(self, dir_name, config_name, custom_sdl_path, as_appimage):
         super().__init__(dir_name)
@@ -449,6 +474,9 @@ if __name__ == "__main__":
 
     if SYSTEM == "Windows":
         project = WindowsProject(build_dir)
+
+    elif SYSTEM == "Darwin" and args.ios:
+        project = IosProject(build_dir)
 
     elif SYSTEM == "Darwin":
         project = MacProject(build_dir)
